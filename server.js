@@ -104,4 +104,9 @@ function createRelay({secret=process.env.META_APP_SECRET, token=process.env.RELA
   return server;
 }
 module.exports={createRelay};
-if(require.main===module) createRelay().listen(process.env.PORT||10000,'0.0.0.0',()=>console.log('PC relay started'));
+if (require.main === module) {
+ const direct = process.env.WHATSAPP_DIRECT_AGENT === 'true';
+ const app = direct ? require('./direct-agent').createDirectAgent({publicPages, publicPage}) : createRelay();
+ app.listen(process.env.PORT||10000, '0.0.0.0', () =>
+   console.log(direct ? 'Direct agent started' : 'PC relay started'));
+}
