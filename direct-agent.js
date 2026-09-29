@@ -9,6 +9,14 @@ function secureEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 const memory = new Map(), chains = new Map(), seen = new Set();
+const receipts = new Map();
+function audit(stage, fields={}) {
+  console.log(JSON.stringify({stage,at:new Date().toISOString(),...fields}));
+}
+function allowed(from) {
+  const number = process.env.AGENT_TEST_PHONE || '';
+  return /^\d{10,15}$/.test(number) && from === number;
+}
 function remember(id) {
   if (seen.has(id)) return false;
   seen.add(id);
@@ -23,28 +31,35 @@ async function jsonPost(url, headers, body) {
   const r = await fetch(url, {method:'POST',headers:{'Content-Type':'application/json',...headers},
     body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error('Remote HTTP '+r.status+': '+JSON.stringify(data).slice(0,300));
+  if (!r.ok) throw new Error('Remote HTTP '+r.status+' code='+String(data.error?.code || 'unknown').replace(/[^a-zA-Z0-9_]/g,''));
   return data;
 }
-async function answerMessage(msg) {
+async function answerMessage(msg, receivedAt=Date.now()) {
   if (msg.type !== 'text' || !msg.text?.body || !msg.from || !msg.id) return;
+  if (!allowed(msg.from) || process.env.AGENT_AUTO_REPLY!=='true' || !configured()) return;
   if (!remember(msg.id)) return;
   const age = Date.now() - Number(msg.timestamp)*1000;
-  if (!Number.isFinite(age) || age < -60000 || age > 23*60*60*1000) return;
+  const activated = Number(process.env.AGENT_TEST_STARTED_AT);
+  if (!activated || Number(msg.timestamp)*1000 < activated || !Number.isFinite(age) || age < -60000 || age > 10*60*1000) return;
+  audit('message_received',{incoming_id:msg.id,received_at:new Date(receivedAt).toISOString()});
   const from = msg.from;
   const previous = chains.get(from) || Promise.resolve();
   const task = previous.then(async () => {
     const history = memory.get(from) || [];
     const question = msg.text.body.slice(0,10000);
+    const aiStart = Date.now();
+    audit('openai_started',{incoming_id:msg.id});
     const data = await jsonPost('https://api.openai.com/v1/chat/completions',
       {Authorization:'Bearer '+process.env.OPENAI_API_KEY},
       {model:process.env.OPENAI_MODEL || 'gpt-4.1-mini',
        messages:[{role:'system',content:process.env.SALES_AGENT_PROMPT},
          ...history,{role:'user',content:question}],
-       max_tokens:300});
+       store:false,max_tokens:300});
+    const aiMs=Date.now()-aiStart;
+    audit('openai_completed',{incoming_id:msg.id,openai_ms:aiMs,response_id:data.id});
     const reply = data.choices?.[0]?.message?.content?.trim();
     if (!reply) throw new Error('The model returned no text');
-    await jsonPost('https://graph.facebook.com/'+(process.env.GRAPH_API_VERSION || 'v23.0')+
+    const sent = await jsonPost('https://graph.facebook.com/'+(process.env.GRAPH_API_VERSION || 'v23.0')+
       '/'+encodeURIComponent(process.env.WHATSAPP_PHONE_NUMBER_ID)+'/messages',
       {Authorization:'Bearer '+process.env.WHATSAPP_ACCESS_TOKEN},
       {messaging_product:'whatsapp',recipient_type:'individual',to:from,
@@ -53,16 +68,27 @@ async function answerMessage(msg) {
     memory.set(from,[...history,{role:'user',content:question},
       {role:'assistant',content:reply}].slice(-16));
     if (memory.size > 500) memory.delete(memory.keys().next().value);
-    console.log('Reply delivered for incoming message ID',msg.id);
-  }).catch(e => console.error('Agent failed for message ID',msg.id,e.message));
+    const outgoing=sent.messages?.[0]?.id;
+    if (!outgoing) throw new Error('Meta returned no message ID');
+    receipts.set(outgoing,{incoming_id:msg.id,receivedAt,openai_ms:aiMs});
+    if(receipts.size>1000) receipts.delete(receipts.keys().next().value);
+    audit('whatsapp_accepted',{incoming_id:msg.id,outgoing_id:outgoing,processing_ms:Date.now()-receivedAt});
+  }).catch(e => audit('processing_failed',{incoming_id:msg.id,error:e.message}));
   chains.set(from,task);
   void task.finally(() => {if (chains.get(from) === task) chains.delete(from);});
 }
-function processEvent(event) {
+function processEvent(event,receivedAt) {
   for (const entry of event.entry || []) for (const change of entry.changes || []) {
     const value = change.value || {};
     if (value.metadata?.phone_number_id !== process.env.WHATSAPP_PHONE_NUMBER_ID) continue;
-    for (const msg of value.messages || []) void answerMessage(msg);
+    for (const status of value.statuses || []) {
+      const receipt=receipts.get(status.id);
+      if(receipt) audit('whatsapp_status',{incoming_id:receipt.incoming_id,outgoing_id:status.id,status:status.status,
+        provider_timestamp:status.timestamp,openai_ms:receipt.openai_ms,
+        delivery_ms:status.status==='delivered'?Number(status.timestamp)*1000-receipt.receivedAt:undefined,
+        status_observed_ms:Date.now()-receipt.receivedAt,error_codes:status.errors?.map(e=>e.code)});
+    }
+    for (const msg of value.messages || []) void answerMessage(msg,receivedAt);
   }
 }
 function createDirectAgent({publicPages={},publicPage}={}) {
@@ -79,7 +105,8 @@ function createDirectAgent({publicPages={},publicPage}={}) {
       }
       if (req.method==='GET' && ['/', '/health'].includes(url.pathname))
         return reply(200,{status:'ok',mode:'direct-agent',
-          configured:configured(),autoReply:process.env.AGENT_AUTO_REPLY==='true'});
+          version:'direct-test-1',configured:configured(),autoReply:process.env.AGENT_AUTO_REPLY==='true',
+          testOnly:true,testNumberConfigured:allowed(process.env.AGENT_TEST_PHONE)});
       if (req.method==='GET' && url.pathname==='/webhook') {
         if (!process.env.VERIFY_TOKEN || url.searchParams.get('hub.mode')!=='subscribe' ||
             !secureEqual(url.searchParams.get('hub.verify_token'),process.env.VERIFY_TOKEN))
@@ -88,8 +115,8 @@ function createDirectAgent({publicPages={},publicPage}={}) {
         return res.end(url.searchParams.get('hub.challenge') || '');
       }
       if (req.method!=='POST' || url.pathname!=='/webhook') return reply(404,{error:'not_found'});
-      if (!configured() || process.env.AGENT_AUTO_REPLY!=='true')
-        return reply(503,{error:'agent_not_enabled'});
+      if (!process.env.META_APP_SECRET) return reply(503,{error:'missing_signature_secret'});
+      const receivedAt=Date.now();
       const chunks = []; let size = 0;
       for await (const chunk of req) {
         size += chunk.length;
@@ -105,7 +132,7 @@ function createDirectAgent({publicPages={},publicPage}={}) {
       if (event.object!=='whatsapp_business_account' || !Array.isArray(event.entry))
         return reply(400,{error:'invalid_event'});
       reply(200,{status:'received'});
-      setImmediate(() => {try {processEvent(event);} catch(e) {console.error(e.message);}});
+      setImmediate(() => {try {processEvent(event,receivedAt);} catch(e) {audit('event_error',{error:e.name});}});
     } catch(e) {console.error('Webhook error',e.message);
       if (!res.headersSent) reply(400,{error:'bad_request'});
     }
