@@ -2,6 +2,26 @@
 // Meta deliveries succeed only after the PC commits the signed event to SQLite.
 const http = require('node:http');
 const crypto = require('node:crypto');
+// Public informational pages contain no account credentials or customer records.
+const publicPages = {
+ '/privacidade': ['Política de privacidade', `
+<p>A <strong>FV Anúncios</strong> é responsável pelo atendimento realizado por meio do aplicativo Atendimento Victor IA. Contato para assuntos de privacidade: <a href="mailto:victorlucro1@gmail.com">victorlucro1@gmail.com</a>.</p>
+<h2>Dados utilizados</h2><p>O atendimento utiliza o telefone, o nome disponibilizado pelo WhatsApp, o conteúdo enviado na conversa, identificadores das mensagens, datas, horários e estados de entrega. Também pode utilizar resumos, pedidos, pendências e rascunhos de respostas para manter o contexto do atendimento. Evite enviar senhas, códigos de autenticação e informações sensíveis desnecessárias.</p>
+<h2>Finalidades</h2><p>Usamos essas informações para responder a solicitações, acompanhar o atendimento e preservar seu contexto. Quando o atendimento se relaciona a uma contratação solicitada pelo cliente, o tratamento necessário pode envolver procedimentos preliminares ou execução do contrato. Outras finalidades exigem avaliação da hipótese legal correspondente. Enviar uma mensagem não representa autorização genérica para qualquer uso dos dados.</p>
+<h2>Armazenamento e fornecedores</h2><p>As mensagens passam pela Meta/WhatsApp. A integração utiliza o Render para transmitir os eventos ao computador responsável pelo atendimento. O aplicativo nesse serviço mantém os eventos temporariamente em memória enquanto aguarda a confirmação local; o histórico permanente da integração e seus backups ficam no computador da FV Anúncios. Os fornecedores também podem manter registros técnicos conforme suas próprias políticas.</p>
+<h2>Uso de inteligência artificial</h2><p>Quando a FV Anúncios utiliza recursos de análise, resumo ou sugestão de respostas da OpenAI, o conteúdo necessário da conversa é transmitido a esse fornecedor. O tratamento depende do produto utilizado e de suas configurações. Esses serviços podem processar dados fora do Brasil. Na configuração atual, as respostas automáticas estão desativadas e o envio de rascunhos depende da autorização do responsável pelo atendimento.</p>
+<h2>Conservação e segurança</h2><p>A configuração atual mantém o histórico e cópias de segurança sem exclusão automática por prazo. Solicitações de exclusão são analisadas individualmente, inclusive quanto a memórias e backups, considerando a necessidade de conservação e eventuais obrigações aplicáveis. O responsável informa quando houver motivo para conservar dados solicitados para exclusão. A integração usa credenciais, autenticação e conexões HTTPS; nenhuma medida elimina todos os riscos.</p>
+<h2>Seus direitos</h2><p>Você pode solicitar confirmação do tratamento, acesso, correção, informações sobre compartilhamento e, quando aplicável, exclusão, oposição, portabilidade ou revogação de consentimento. Use o e-mail acima. Poderemos solicitar apenas informações proporcionais para confirmar sua identidade. A solicitação não tem cobrança. Consulte também as <a href="https://www.gov.br/anpd/pt-br/assuntos/titular-de-dados-1/direito-dos-titulares">orientações da ANPD</a>.</p>
+<p>Para pedir exclusão, consulte as <a href="/exclusao-de-dados">instruções de exclusão de dados</a>. Alterações relevantes no uso ou armazenamento dos dados serão refletidas nesta página.</p>`],
+ '/exclusao-de-dados': ['Solicitar exclusão de dados', `
+<p>Para solicitar a exclusão dos dados do atendimento por WhatsApp da <strong>FV Anúncios</strong>, escreva para <a href="mailto:victorlucro1@gmail.com?subject=Solicita%C3%A7%C3%A3o%20de%20exclus%C3%A3o%20de%20dados">victorlucro1@gmail.com</a>.</p>
+<ol><li>Use o assunto “Solicitação de exclusão de dados — WhatsApp”.</li><li>Informe seu número de WhatsApp com código do país e quais dados deseja excluir.</li><li>Aguarde a resposta do responsável, que poderá confirmar sua identidade de forma proporcional ao pedido.</li></ol>
+<p>Não envie senhas, tokens ou documentos de identidade na solicitação inicial. A resposta informará o resultado ou explicará os dados que precisem ser conservados e o motivo. A análise abrange o histórico, memórias e registros relacionados, inclusive cópias de segurança sob controle da FV Anúncios, observadas as obrigações aplicáveis. O pedido é gratuito.</p>
+<p>A exclusão na integração não remove automaticamente mensagens do seu aparelho nem dados mantidos independentemente pelo WhatsApp ou por outros fornecedores. Para esses serviços, utilize também seus próprios canais de privacidade.</p><p><a href="/privacidade">Ler a política de privacidade</a></p>`]
+};
+function publicPage(title, content) {
+ return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} | FV Anúncios</title><style>body{margin:0;background:#f5f7fa;color:#182b3a;font:17px/1.7 system-ui,sans-serif}main{max-width:760px;margin:40px auto;padding:32px;background:white;border-radius:16px}h1{line-height:1.2}h2{font-size:1.25rem;margin-top:32px}a{color:#075ea8;overflow-wrap:anywhere}small{color:#526273}@media(max-width:600px){main{margin:12px;padding:22px}}</style></head><body><main><small>FV ANÚNCIOS · ATENDIMENTO PELO WHATSAPP</small><h1>${title}</h1><p><small>Atualizado em 29 de setembro de 2026</small></p>${content}</main></body></html>`;
+}
 function equal(a,b) {
   const x=Buffer.from(a||''), y=Buffer.from(b||'');
   return x.length===y.length && crypto.timingSafeEqual(x,y);
@@ -22,6 +42,11 @@ function createRelay({secret=process.env.META_APP_SECRET, token=process.env.RELA
   const server=http.createServer(async(req,res)=>{
     try {
       const url=new URL(req.url,'http://localhost');
+      if(['GET','HEAD'].includes(req.method) && Object.hasOwn(publicPages,url.pathname)) {
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','X-Content-Type-Options':'nosniff',
+          'Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"});
+        return res.end(req.method==='HEAD'?'':publicPage(...publicPages[url.pathname]));
+      }
       if(req.method==='GET' && ['/', '/health'].includes(url.pathname))
         return reply(res,200,{status:'ok',version:'pc-relay-1'});
       if(url.pathname.startsWith('/relay/')) {
