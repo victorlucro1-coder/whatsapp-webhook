@@ -92,6 +92,8 @@ function processEvent(event,receivedAt) {
   }
 }
 function createDirectAgent({publicPages={},publicPage}={}) {
+  if(process.env.AGENT_SALES_PILOT==='true')
+    return require('./sales-agent').createSalesAgent({publicPages,publicPage});
   return http.createServer(async (req,res) => {
     function reply(status,payload) {
       res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});

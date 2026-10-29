@@ -1,5 +1,5 @@
 'use strict';
-// Meta deliveries succeed only after the PC commits the signed event to SQLite.
+// Selects the existing relay or the direct WhatsApp integration.
 const http = require('node:http');
 const crypto = require('node:crypto');
 // Public informational pages contain no account credentials or customer records.
@@ -117,4 +117,8 @@ if (require.main === module) {
  const app = direct ? require('./direct-agent').createDirectAgent({publicPages, publicPage}) : createRelay();
  app.listen(process.env.PORT||10000, '0.0.0.0', () =>
    console.log(direct ? 'Direct agent started' : 'PC relay started'));
+ process.once('SIGTERM',()=>{
+   app.close();
+   setTimeout(()=>process.exit(0),28000).unref();
+ });
 }
