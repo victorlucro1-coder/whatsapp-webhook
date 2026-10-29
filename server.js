@@ -4,6 +4,14 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 // Public informational pages contain no account credentials or customer records.
 const publicPages = {
+ '/empresa': ['FV Anúncios', `
+<p>FV Anúncios · Brasil.</p>
+<h2>Fale com a FV Anúncios</h2>
+<p>Entre em contato para solicitar informações e atendimento.</p>
+<p><a href="https://wa.me/5511947989856">Conversar pelo WhatsApp: +55 (11) 94798-9856</a></p>
+<p>E-mail: <a href="mailto:victorlucro1@gmail.com">victorlucro1@gmail.com</a></p>
+<h2>Privacidade</h2>
+<p>Consulte a <a href="/privacidade">política de privacidade</a> e as <a href="/exclusao-de-dados">instruções para solicitar exclusão de dados</a>.</p>`],
  '/privacidade': ['Política de privacidade', `
 <p>A <strong>FV Anúncios</strong> é responsável pelo atendimento realizado por meio do aplicativo Atendimento Victor IA. Contato para assuntos de privacidade: <a href="mailto:victorlucro1@gmail.com">victorlucro1@gmail.com</a>.</p>
 <h2>Dados utilizados</h2><p>O atendimento utiliza o telefone, o nome disponibilizado pelo WhatsApp, o conteúdo enviado na conversa, identificadores das mensagens, datas, horários e estados de entrega. Também pode utilizar resumos, pedidos, pendências e rascunhos de respostas para manter o contexto do atendimento. Evite enviar senhas, códigos de autenticação e informações sensíveis desnecessárias.</p>
