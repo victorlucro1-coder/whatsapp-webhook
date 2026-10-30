@@ -11,7 +11,7 @@ const {immediateAction,businessHours,nextBusinessTime,replyDelay,SYSTEM_PROMPT}=
 
 const PHONE='5511993680362',OPERATOR='5511888888888';
 const START=Date.parse('2026-10-29T13:00:00Z');
-function decision(extra={}){return {action:'reply',reason:'none',reply:'A gestão custa R$ 400 por plataforma, com a verba dos anúncios separada.',summary:'João tem uma empresa de instalação de ar-condicionado.',name:'João',company_type:'Instalação de ar-condicionado',city:'Recife',ad_experience:'primeira vez',followup_eligible:true,followup_5h:true,...extra};}
+function decision(extra={}){return {action:'reply',reason:'none',reply:'Oi, João! Aqui é o Francisco, da FV Anúncios. Posso colocar um anúncio da sua empresa para alcançar pessoas da sua região que precisam de instalação de ar-condicionado.',summary:'João tem uma empresa de instalação de ar-condicionado.',name:'João',company_type:'Instalação de ar-condicionado',city:'Recife',ad_experience:'primeira vez',followup_eligible:true,followup_5h:true,...extra};}
 function fixture(overrides={},transportOverrides={},store){
   let time=START,seq=0;const sends=[],decisions=[],logs=[];
   const config={...configuration({}),phoneId:'phone-id',testPhone:PHONE,operator:OPERATOR,activated:START-1000,

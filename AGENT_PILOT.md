@@ -7,6 +7,8 @@ O serviço e o webhook existentes são reutilizados. O piloto aceita somente o t
 As condições comerciais aprovadas estão em `sales-policy.js`. Nenhum token é incluído nesses arquivos.
 
 - Perguntas naturais sobre nome, ramo e experiência; preço direto quando perguntado.
+- Respostas com até 240 caracteres e uma ideia por vez. Primeira resposta apresenta Francisco; sem preços quando o lead apenas pergunta como funciona. Materiais não são solicitados durante a apresentação.
+- Confusão recebe um exemplo simples, sem repetir a oferta inteira. Respostas que violam essas regras são reescritas uma vez; se continuarem inválidas, o atendimento é pausado para Francisco. Nenhum texto é cortado ou dividido para contornar o limite.
 - Gestão de R$ 400 por plataforma; entrada de R$ 200 e R$ 200 ao iniciar a veiculação.
 - Verba da plataforma separada; opcionais de página/domínio e vídeo conforme as condições aprovadas.
 - Sem lucro garantido, dados locais inventados, urgência fictícia ou desconto não autorizado.

@@ -2,7 +2,7 @@
 const http=require('node:http');
 const crypto=require('node:crypto');
 const {SalesStore}=require('./sales-store');
-const {SYSTEM_PROMPT,SCHEMA,immediateAction,businessHours,nextBusinessTime,replyDelay,validateDecision}=require('./sales-policy');
+const {SYSTEM_PROMPT,SCHEMA,immediateAction,businessHours,nextBusinessTime,replyDelay,validateDecision,conversationRules}=require('./sales-policy');
 function normalized(t){return t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
 
 function equal(a,b){const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&crypto.timingSafeEqual(x,y);}
@@ -38,7 +38,8 @@ function liveTransport(config){
         model:config.model,store:false,max_tokens:1000,
         response_format:{type:'json_schema',json_schema:{name:'fv_sales_decision',strict:true,schema:SCHEMA}},
         messages:[{role:'system',content:SYSTEM_PROMPT},
-          {role:'user',content:JSON.stringify({task:context.task,followups_enabled:context.followups_enabled,contact_facts:context.facts,summary_untrusted:context.summary})},...context.history]
+          {role:'user',content:JSON.stringify({task:context.task,followups_enabled:context.followups_enabled,conversation_rules:context.rules,contact_facts:context.facts,summary_untrusted:context.summary})},...context.history,
+          ...(context.correction?[{role:'system',content:`Reescreva a resposta: a tentativa anterior foi bloqueada por ${context.correction}. Obedeça conversation_rules, até 240 caracteres no campo reply. Não corte uma frase no meio. Preserve os fatos e responda só à dúvida atual.`}]:[])]
       });
       const choice=data.choices?.[0];
       if(choice?.finish_reason!=='stop'||choice.message?.refusal)throw new Error('model_incomplete_or_refused');
@@ -180,9 +181,18 @@ class SalesEngine {
       this.log('openai_started',{incoming_id:payload.incoming_id,task:job.kind});
       const started=this.now();
       try{
-        const result=await this.transport.decide({task:job.kind,summary:c.summary,followups_enabled:this.config.followups&&this.config.persistent,
-          facts:{name:c.name,company_type:c.company_type,city:c.city,ad_experience:c.ad_experience},history:this.store.history(job.phone)});
-        const decision=validateDecision(result.decision);
+        const history=this.store.history(job.phone),rules=conversationRules(history);
+        const context={task:job.kind,summary:c.summary,followups_enabled:this.config.followups&&this.config.persistent,rules,
+          facts:{name:c.name,company_type:c.company_type,city:c.city,ad_experience:c.ad_experience},history};
+        let result=await this.transport.decide(context),decision;
+        try {decision=validateDecision(result.decision,rules);}
+        catch(e) {
+          if(!e.message.startsWith('style_')||!this.current(job)||this.store.jobState(job.id)!=='running')throw e;
+          if(!this.store.allowAi(job.phone,this.now()))throw new Error('rewrite_limit');
+          this.log('reply_rewritten',{reason:e.message});
+          result=await this.transport.decide({...context,correction:e.message});
+          decision=validateDecision(result.decision,rules);
+        }
         this.log('openai_completed',{incoming_id:payload.incoming_id,openai_ms:this.now()-started,response_id:result.responseId});
         if(!this.current(job)||this.store.jobState(job.id)!=='running'){this.store.finish(job.id,'cancelled');return;}
         if(decision.action==='handoff'||decision.action==='opt_out'){
@@ -237,7 +247,7 @@ function createSalesAgent({publicPages={},publicPage,config=configuration(),engi
           'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",'Referrer-Policy':'no-referrer'});
         return res.end(req.method==='HEAD'?'':publicPage(...publicPages[url.pathname]));
       }
-      if(req.method==='GET'&&['/','/health'].includes(url.pathname))return respond(200,{status:'ok',mode:'sales-pilot',version:'sales-pilot-1',
+      if(req.method==='GET'&&['/','/health'].includes(url.pathname))return respond(200,{status:'ok',mode:'sales-pilot',version:'sales-pilot-2',
         configured:config.ready(),autoReply:config.enabled(),testOnly:true,storage:config.persistent?'persistent-sqlite':'temporary-pilot',followups:config.followups&&config.persistent});
       if(req.method==='GET'&&url.pathname==='/webhook'){
         if(url.searchParams.get('hub.mode')!=='subscribe'||!config.env.VERIFY_TOKEN||!equal(url.searchParams.get('hub.verify_token'),config.env.VERIFY_TOKEN))return respond(403,{error:'verification'});

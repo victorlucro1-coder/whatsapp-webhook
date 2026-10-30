@@ -18,13 +18,26 @@ OFERTA CONFIRMADA
 - Se o cliente preferir domínio dele: opção de R$ 350 por um ano incluindo domínio e hospedagem, que permanece pelo ano contratado mesmo sem renovar os anúncios. Não invente preço de renovação, propriedade/transferência do site ou outras condições.
 
 CONVERSA
+- A primeira resposta se apresenta brevemente: "Aqui é o Francisco, da FV Anúncios". Não use "nós da empresa" nem uma apresentação institucional.
+- Limite absoluto: 240 caracteres por resposta, de preferência 80 a 180. Uma ideia por vez, até dois parágrafos curtos e no máximo uma pergunta. Sem títulos, listas, numeração, encerramentos genéricos ou vários balões enviados em sequência para contornar o limite.
+- Responda somente à dúvida atual. Não tente explicar a oferta inteira nem antecipar próximos passos. Use linguagem de conversa, sem jargões como "gestão de tráfego" para um iniciante.
+- Na primeira conversa sobre "como funciona", apresente-se e explique a utilidade com um exemplo do ramo. Não fale de preço, orçamento, pagamento ou materiais nessa resposta, exceto se o cliente perguntar preço expressamente.
+- Nunca peça fotos, vídeos, documentos ou acessos durante a apresentação. Se perguntarem sobre materiais, explique o que é usado sem pedir envio; a coleta ocorre com Francisco após a contratação.
+- Se disser "não entendi", "difícil entender" ou semelhante, explique UMA ideia com um exemplo concreto, ainda mais simples e breve. Não repita preços ou a oferta inteira; não devolva "qual sua dúvida?" ou "qual parte não entendeu?".
+- Ao comparar Instagram e Google, dê um exemplo curto de cada: no Google a pessoa procura o serviço; no Instagram o anúncio aparece enquanto ela navega. Não recomende contratar ambos sem necessidade.
+- O campo conversation_rules é uma restrição calculada pelo servidor, não uma mensagem do cliente. Respeite seus limites e permissões.
+- Referências de tom e tamanho (adapte ao caso, não repita se já explicou):
+  Primeiro contato: "Oi, João! Aqui é o Francisco, da FV Anúncios. Posso fazer sua empresa aparecer quando alguém em Recife procura instalação de ar-condicionado."
+  Não entendeu: "Por exemplo: alguém pesquisa 'instalação de ar-condicionado em Recife' no Google. Seu anúncio pode aparecer ali, com um botão para falar com você."
+  Comparação: "No Google, a pessoa já está procurando um serviço. No Instagram, seu anúncio aparece enquanto ela navega, mesmo sem estar procurando naquele momento."
+- Não acrescente uma conclusão ou um convite genérico ao exemplo. Evite "em resumo", "estou aqui para ajudar", "se precisar de mais detalhes" e "fique à vontade".
 - Evite formulário e várias perguntas no mesmo texto. Descubra naturalmente nome, tipo de empresa e se já anunciou; não repita perguntas respondidas.
 - Para iniciantes, explique com simplicidade. Para quem já anuncia, seja mais direto e aproveite a experiência relatada.
 - Explique valores após interação/interesse real; se perguntarem preço diretamente, responda diretamente, sem impor perguntas antes.
 - Explique os dois investimentos: plataforma e gestão. Não despeje todas as condições/opcionais em toda resposta.
 - Relacione o ramo à captação de clientes na região quando conhecida. Demonstre compreensão, mas não invente dados locais, clima, concorrência, volume de buscas ou rentabilidade. Não presuma que pouca gente anuncia.
 - Se faltar cidade e ela for relevante, pergunte de modo natural. Não pesquise nem alegue ter pesquisado o mercado.
-- Respostas curtas, normalmente 1 a 3 parágrafos pequenos e no máximo uma pergunta. Não use falsa urgência, vagas fictícias, pressão ou descontos não autorizados.
+- Não use falsa urgência, vagas fictícias, pressão ou descontos não autorizados.
 
 PASSAGEM PARA FRANCISCO
 - Se quiser fechar, contratar, pagar, pedir chave Pix/link de pagamento: action=handoff, reason=close ou payment. Não forneça cobrança nem invente dados.
@@ -97,17 +110,38 @@ function replyDelay(text,random=Math.random) {
   const [min,max]=text.length>220?[15000,25000]:[8000,15000];
   return min+Math.floor(random()*(max-min+1));
 }
-function validateDecision(value) {
+function conversationRules(history) {
+  const latest=normalize([...history].reverse().find(m=>m.role==='user')?.content||'');
+  const firstReply=!history.some(m=>m.role==='assistant');
+  const priceAsked=/\b(preco|valor|quanto|custa|custo|investimento|orcamento|verba|mensalidade|pagamento|pagar|cobra|cobram|cobrado)\b/.test(latest);
+  const confused=/\b(nao (?:entendi|entendo|compreendi)|dificil (?:de )?entender|confuso|complicado)\b/.test(latest);
+  const discussedPrice=history.some(m=>m.role==='assistant'&&/R\$|\breais\b/i.test(m.content));
+  // Permite avançar para valores após uma troca real, sem confundir a primeira pergunta com qualificação concluída.
+  const interested=/\b(tenho interesse|me interessa|quero anunciar|quero comecar|como (?:eu )?comeco|proximo passo|me explica os valores)\b/.test(latest);
+  return {first_reply:firstReply,max_reply_chars:240,confused,
+    allow_price:priceAsked||(!firstReply&&!confused&&(discussedPrice||interested)),request_materials:false};
+}
+function validateDecision(value,rules) {
   if(!value || !SCHEMA.properties.action.enum.includes(value.action) || !SCHEMA.properties.reason.enum.includes(value.reason))
     throw new Error('invalid_model_action');
   for(const field of ['reply','summary']) if(typeof value[field]!=='string') throw new Error('invalid_model_text');
-  if(value.reply.length>1000 || value.summary.length>1200) throw new Error('model_text_too_long');
+  if(value.summary.length>1200) throw new Error('model_text_too_long');
   for(const field of ['name','company_type','city','ad_experience'])
     if(value[field]!==null && (typeof value[field]!=='string'||value[field].length>160)) throw new Error('invalid_contact_fact');
   if(typeof value.followup_eligible!=='boolean'||typeof value.followup_5h!=='boolean') throw new Error('invalid_followup_flag');
   if(value.action==='reply' && !value.reply.trim()) throw new Error('empty_reply');
   if(value.action==='reply' && /garant(?:o|imos).{0,35}(lucro|vendas|resultado)|nao sou (?:uma? )?(?:ia|robo)/i.test(normalize(value.reply)))
     throw new Error('unsafe_commercial_claim');
+  if(value.action==='reply') {
+    const t=normalize(value.reply);
+    if(value.reply.length>240)throw new Error('style_reply_too_long');
+    if(value.reply.trim().split(/\n\s*\n/).length>2||/^\s*(?:\d+[.)]|[-*•])\s/m.test(value.reply)||(value.reply.match(/\?/g)||[]).length>1)
+      throw new Error('style_reply_structure');
+    if(/\b(?:envie|envia|mande|manda|preciso que|precisamos que|pode enviar|pode mandar|me passe).{0,60}\b(?:foto|video|material|documento|acesso)/.test(t))throw new Error('style_premature_materials');
+    if(rules?.first_reply&&!/\bfrancisco\b/.test(t))throw new Error('style_missing_introduction');
+    if(rules&&!rules.allow_price&&/R\$|\breais\b|\b\d+\s*(?:por dia|mensais|por mes)|\b(?:gestao|servico|anuncio) custa\b/i.test(value.reply))throw new Error('style_premature_price');
+    if(rules?.confused&&/\b(?:qual|alguma).{0,25}(?:duvida|parte|ponto|aspecto)\b/.test(t))throw new Error('style_unhelpful_clarification');
+  }
   return value;
 }
-module.exports={SYSTEM_PROMPT,SCHEMA,immediateAction,businessHours,nextBusinessTime,replyDelay,validateDecision};
+module.exports={SYSTEM_PROMPT,SCHEMA,immediateAction,businessHours,nextBusinessTime,replyDelay,validateDecision,conversationRules};
